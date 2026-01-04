@@ -1,7 +1,7 @@
 defmodule SvgTest do
   use ExUnit.Case
 
-  alias Svg.Elements.{Circle, Line, Path}
+  alias Svg.Elements.{Circle, Ellipse, Line, Path, Polygon, Polyline, Rect}
 
   doctest Svg
   doctest Svg.Canvas
@@ -87,6 +87,68 @@ defmodule SvgTest do
     end
   end
 
+  describe "edge cases" do
+    test "canvas_custom creates canvas with custom dimensions" do
+      canvas = Svg.canvas_custom(100, 200, resolution: 300)
+      assert canvas.width_mm == 100
+      assert canvas.height_mm == 200
+      assert canvas.dpi == 300
+    end
+
+    test "empty polyline renders correctly" do
+      polyline = Polyline.new(points: [])
+      svg = Polyline.to_svg(polyline)
+      assert svg =~ ~s(points="")
+    end
+
+    test "empty polygon renders correctly" do
+      polygon = Polygon.new(points: [])
+      svg = Polygon.to_svg(polygon)
+      assert svg =~ ~s(points="")
+    end
+
+    test "single point polyline renders" do
+      polyline = Polyline.new(points: [{50, 50}])
+      svg = Polyline.to_svg(polyline)
+      assert svg =~ ~s(points="50,50")
+    end
+
+    test "perturb with samples=1 returns single point" do
+      line = Line.new(x1: 0, y1: 0, x2: 100, y2: 100)
+      path = Svg.Perturb.perturb(line, samples: 1, seed: 42)
+      # Should not crash and should return a valid path
+      assert path.__struct__ == Path
+    end
+
+    test "perturb with samples=2 works correctly" do
+      line = Line.new(x1: 0, y1: 0, x2: 100, y2: 100)
+      path = Svg.Perturb.perturb(line, samples: 2, seed: 42)
+      assert path.__struct__ == Path
+      assert path.d =~ "M"
+      assert path.d =~ "L"
+    end
+
+    test "all paper sizes are valid" do
+      for size <- [:a4, :a5, :a6, :us_letter, :nine_by_twelve, :four_by_six] do
+        canvas = Svg.canvas(size)
+        assert canvas.width_mm > 0
+        assert canvas.height_mm > 0
+      end
+    end
+
+    test "all resolution presets are valid" do
+      for resolution <- [:axidraw_fine, :axidraw_fast, :illustrator, :inkscape] do
+        canvas = Svg.canvas(:a6, resolution: resolution)
+        assert canvas.dpi > 0
+      end
+    end
+
+    test "custom integer DPI works" do
+      canvas = Svg.canvas(:a6, resolution: 150)
+      assert canvas.dpi == 150
+    end
+  end
+
   describe "Svg.Calibration" do
     test "generates a calibration pattern with straight and perturbed lines" do
       canvas = Svg.Calibration.generate()
@@ -155,6 +217,60 @@ defmodule SvgTest do
     test "perturbs a circle element using polar noise" do
       circle = Circle.new(cx: 50, cy: 50, r: 25, stroke: "black")
       path = Svg.Perturb.perturb(circle, amplitude: 5.0, seed: 42)
+
+      assert path.__struct__ == Path
+      assert path.d =~ "M"
+      assert path.d =~ "Z"
+    end
+
+    test "perturbs an ellipse element using polar noise" do
+      ellipse = Ellipse.new(cx: 50, cy: 50, rx: 40, ry: 20, stroke: "black")
+      path = Svg.Perturb.perturb(ellipse, amplitude: 5.0, seed: 42)
+
+      assert path.__struct__ == Path
+      assert path.d =~ "M"
+      assert path.d =~ "Z"
+    end
+
+    test "perturbs a rect element" do
+      rect = Rect.new(x: 10, y: 10, width: 80, height: 60, stroke: "black")
+      path = Svg.Perturb.perturb(rect, amplitude: 5.0, seed: 42)
+
+      assert path.__struct__ == Path
+      assert path.d =~ "M"
+      assert path.d =~ "Z"
+    end
+
+    test "perturbs a polyline element" do
+      polyline = Polyline.new(points: [{0, 0}, {50, 25}, {100, 0}], stroke: "black")
+      path = Svg.Perturb.perturb(polyline, amplitude: 5.0, seed: 42)
+
+      assert path.__struct__ == Path
+      assert path.d =~ "M"
+      assert path.d =~ "L"
+    end
+
+    test "perturbs a polygon element" do
+      polygon = Polygon.new(points: [{0, 0}, {100, 0}, {50, 100}], stroke: "black")
+      path = Svg.Perturb.perturb(polygon, amplitude: 5.0, seed: 42)
+
+      assert path.__struct__ == Path
+      assert path.d =~ "M"
+      assert path.d =~ "Z"
+    end
+
+    test "perturbs a path element" do
+      original_path = Path.new(d: "M 0 0 L 50 50 L 100 0", stroke: "black")
+      path = Svg.Perturb.perturb(original_path, amplitude: 5.0, seed: 42)
+
+      assert path.__struct__ == Path
+      assert path.d =~ "M"
+      assert path.d =~ "L"
+    end
+
+    test "perturbs a closed path element" do
+      original_path = Path.new(d: "M 0 0 L 100 0 L 50 100 Z", stroke: "black")
+      path = Svg.Perturb.perturb(original_path, amplitude: 5.0, seed: 42)
 
       assert path.__struct__ == Path
       assert path.d =~ "M"
@@ -275,6 +391,44 @@ defmodule SvgTest do
     test "handles empty canvas gracefully" do
       canvas = Svg.canvas(:a6) |> Svg.perturb_last(amplitude: 5.0)
       assert canvas.elements == []
+    end
+  end
+
+  describe "Svg.save/2 and Svg.save!/2" do
+    @tag :tmp_dir
+    test "save/2 writes SVG to file", %{tmp_dir: tmp_dir} do
+      canvas = Svg.canvas(:a6) |> Svg.line(x1: 0, y1: 0, x2: 100, y2: 100, stroke: "black")
+      file_path = Elixir.Path.join(tmp_dir, "test.svg")
+
+      assert {:ok, ^file_path} = Svg.save(canvas, file_path)
+      assert File.exists?(file_path)
+
+      content = File.read!(file_path)
+      assert content =~ "<svg"
+      assert content =~ "<line"
+    end
+
+    @tag :tmp_dir
+    test "save!/2 returns path on success", %{tmp_dir: tmp_dir} do
+      canvas = Svg.canvas(:a6)
+      file_path = Elixir.Path.join(tmp_dir, "test2.svg")
+
+      assert Svg.save!(canvas, file_path) == file_path
+      assert File.exists?(file_path)
+    end
+
+    test "save/2 returns error for invalid path" do
+      canvas = Svg.canvas(:a6)
+
+      assert {:error, _reason} = Svg.save(canvas, "/nonexistent/directory/file.svg")
+    end
+
+    test "save!/2 raises for invalid path" do
+      canvas = Svg.canvas(:a6)
+
+      assert_raise File.Error, fn ->
+        Svg.save!(canvas, "/nonexistent/directory/file.svg")
+      end
     end
   end
 end

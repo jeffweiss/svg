@@ -95,6 +95,46 @@ defmodule Svg do
   @spec to_svg(Canvas.t()) :: String.t()
   defdelegate to_svg(canvas), to: Canvas
 
+  @doc """
+  Saves the canvas to a file.
+
+  Returns `{:ok, path}` on success or `{:error, reason}` on failure.
+
+  ## Examples
+
+      canvas = Svg.canvas(:a6) |> Svg.line(x1: 0, y1: 0, x2: 100, y2: 100)
+      {:ok, path} = Svg.save(canvas, "output.svg")
+
+  """
+  @spec save(Canvas.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
+  def save(%Canvas{} = canvas, path) when is_binary(path) do
+    svg_content = to_svg(canvas)
+
+    case File.write(path, svg_content) do
+      :ok -> {:ok, path}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Saves the canvas to a file, raising on error.
+
+  Returns the file path on success.
+
+  ## Examples
+
+      canvas = Svg.canvas(:a6) |> Svg.line(x1: 0, y1: 0, x2: 100, y2: 100)
+      path = Svg.save!(canvas, "output.svg")
+
+  """
+  @spec save!(Canvas.t(), String.t()) :: String.t()
+  def save!(%Canvas{} = canvas, path) when is_binary(path) do
+    case save(canvas, path) do
+      {:ok, path} -> path
+      {:error, reason} -> raise File.Error, reason: reason, action: "write to file", path: path
+    end
+  end
+
   # Element creation helpers
 
   @doc """

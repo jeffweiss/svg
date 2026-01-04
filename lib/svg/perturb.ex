@@ -130,15 +130,63 @@ defmodule Svg.Perturb do
     build_closed_path(perturbed, ellipse.attrs)
   end
 
+  def perturb(%Path{d: d, attrs: attrs}, opts) do
+    opts = Keyword.merge(@default_opts, opts)
+    state = Noise.seed(opts[:seed])
+
+    # Parse path data to extract points (handles M, L, Z commands)
+    points = parse_path_points(d)
+
+    if length(points) < 2 do
+      Path.new([{:d, d} | Map.to_list(attrs)])
+    else
+      # Determine if path is closed
+      is_closed = String.contains?(d, "Z") or String.contains?(d, "z")
+
+      perturbed =
+        if is_closed do
+          perturb_closed_path(points, state, opts)
+        else
+          perturb_open_path(points, state, opts)
+        end
+
+      if is_closed do
+        build_closed_path(perturbed, attrs)
+      else
+        build_path(perturbed, attrs)
+      end
+    end
+  end
+
   # Sampling functions
 
-  defp sample_line(%Line{x1: x1, y1: y1, x2: x2, y2: y2}, samples) do
+  defp sample_line(%Line{x1: x1, y1: y1, x2: x2, y2: y2}, samples) when samples >= 2 do
     Enum.map(0..(samples - 1), fn i ->
       t = i / (samples - 1)
       x = x1 + (x2 - x1) * t
       y = y1 + (y2 - y1) * t
       {x, y}
     end)
+  end
+
+  defp sample_line(%Line{x1: x1, y1: y1}, _samples) do
+    [{x1, y1}]
+  end
+
+  # Parses simple path data (M, L, Z commands) into a list of points
+  defp parse_path_points(path_d) do
+    # Match M/L commands followed by coordinates
+    Regex.scan(~r/[ML]\s*([-\d.]+)\s*[,\s]\s*([-\d.]+)/i, path_d)
+    |> Enum.map(fn [_, x, y] ->
+      {parse_number(x), parse_number(y)}
+    end)
+  end
+
+  defp parse_number(str) do
+    case Float.parse(str) do
+      {num, _} -> num
+      :error -> 0.0
+    end
   end
 
   defp sample_polyline(points, _samples) when length(points) < 2, do: points
@@ -210,11 +258,16 @@ defmodule Svg.Perturb do
     octaves = opts[:octaves]
     persistence = opts[:persistence]
 
-    points
-    |> Enum.with_index()
-    |> Enum.map(fn {{x, y}, i} ->
-      # Get perpendicular direction
-      {nx, ny} = get_normal_at(points, i)
+    # Convert to tuple for O(1) access
+    points_tuple = List.to_tuple(points)
+    len = tuple_size(points_tuple)
+
+    # Compute normals and perturb in a single pass
+    Enum.map(0..(len - 1), fn i ->
+      {x, y} = elem(points_tuple, i)
+
+      # Get perpendicular direction using O(1) tuple access
+      {nx, ny} = get_normal_at_tuple(points_tuple, i, len)
 
       # Calculate noise
       noise =
@@ -238,21 +291,19 @@ defmodule Svg.Perturb do
     perturb_open_path(points, state, opts)
   end
 
-  defp get_normal_at(points, index) do
-    len = length(points)
-
+  defp get_normal_at_tuple(points_tuple, index, len) do
     {prev_x, prev_y} =
       if index == 0 do
-        Enum.at(points, 0)
+        elem(points_tuple, 0)
       else
-        Enum.at(points, index - 1)
+        elem(points_tuple, index - 1)
       end
 
     {next_x, next_y} =
       if index >= len - 1 do
-        Enum.at(points, len - 1)
+        elem(points_tuple, len - 1)
       else
-        Enum.at(points, index + 1)
+        elem(points_tuple, index + 1)
       end
 
     # Tangent direction

@@ -17,6 +17,7 @@ defmodule Svg.Calibration do
   alias Svg.Canvas
   alias Svg.Elements.Line
   alias Svg.Perturb
+  alias Svg.Units
 
   @line_length_mm 40
   @lines_per_section 5
@@ -57,31 +58,31 @@ defmodule Svg.Calibration do
     dpi = canvas.dpi
 
     # Calculate positions in pixels
-    line_length_px = mm_to_px(@line_length_mm, dpi)
+    line_length_px = Units.to_pixels(@line_length_mm, dpi)
 
     # Margins
     margin_mm = 8
-    margin_px = mm_to_px(margin_mm, dpi)
+    margin_px = Units.to_pixels(margin_mm, dpi)
 
     # Column positions
     left_x = margin_px
-    right_x = margin_px + mm_to_px(50, dpi)
+    right_x = margin_px + Units.to_pixels(50, dpi)
 
     # Section gap between different spacings
     section_gap_mm = 8
-    section_gap_px = mm_to_px(section_gap_mm, dpi)
+    section_gap_px = Units.to_pixels(section_gap_mm, dpi)
 
     # Starting Y position
     start_y = margin_px
 
     # Perturbation amplitude in pixels
-    amplitude_px = mm_to_px(@perturb_amplitude_mm, dpi)
+    amplitude_px = Units.to_pixels(@perturb_amplitude_mm, dpi)
 
     # Generate all elements
     {straight_elements, perturbed_elements, _final_y} =
       Enum.reduce(@spacings_mm, {[], [], start_y}, fn spacing_mm,
                                                       {straight_acc, perturb_acc, y} ->
-        spacing_px = mm_to_px(spacing_mm, dpi)
+        spacing_px = Units.to_pixels(spacing_mm, dpi)
 
         # Generate straight lines for this section
         straight =
@@ -144,9 +145,5 @@ defmodule Svg.Calibration do
         samples: @perturb_samples
       )
     end)
-  end
-
-  defp mm_to_px(mm, dpi) do
-    mm * dpi / 25.4
   end
 end
