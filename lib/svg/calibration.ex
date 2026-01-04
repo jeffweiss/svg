@@ -2,26 +2,36 @@ defmodule Svg.Calibration do
   @moduledoc """
   Generates calibration test patterns for plotter/printer accuracy testing.
 
-  The calibration SVG uses an A6 canvas and includes multiple sections with
-  different line spacings to verify precision at various scales.
+  The calibration SVG uses an A6 canvas and includes sections comparing clean
+  geometric lines with their perturbed counterparts at different line spacings.
 
   ## Layout
 
-  The pattern is organized in two columns:
-    * Left column: 0.5mm and 0.7mm spacing (tighter tolerances)
-    * Right column: 1.0mm and 1.5mm spacing (wider tolerances)
+  Two-column layout comparing straight vs. perturbed lines:
+    * Left column: Clean straight lines (0.5mm, 0.7mm, 1.0mm, 1.5mm spacing)
+    * Right column: Perturbed versions of the same lines using Perlin noise
 
   Each section contains 5 horizontal lines, each 40mm long.
   """
 
   alias Svg.Canvas
   alias Svg.Elements.Line
+  alias Svg.Perturb
 
   @line_length_mm 40
   @lines_per_section 5
+  @spacings_mm [0.5, 0.7, 1.0, 1.5]
+
+  # Perturbation settings for calibration
+  @perturb_amplitude_mm 1.0
+  @perturb_frequency 0.02
+  @perturb_seed 42
+  @perturb_samples 50
 
   @doc """
   Generates a calibration test pattern SVG.
+
+  The pattern includes both straight and perturbed lines for visual comparison.
 
   ## Options
 
@@ -44,55 +54,56 @@ defmodule Svg.Calibration do
   def generate(opts \\ []) do
     resolution = Keyword.get(opts, :resolution, :axidraw_fine)
     canvas = Canvas.new(:a6, resolution: resolution)
+    dpi = canvas.dpi
 
     # Calculate positions in pixels
-    dpi = canvas.dpi
     line_length_px = mm_to_px(@line_length_mm, dpi)
 
-    # Margins and column layout
-    margin_mm = 10
+    # Margins
+    margin_mm = 8
     margin_px = mm_to_px(margin_mm, dpi)
 
-    # Column width: roughly half the page minus margins
-    column_width_mm = 40
-
-    # Section spacing (vertical gap between sections in same column)
-    section_gap_mm = 15
-    section_gap_px = mm_to_px(section_gap_mm, dpi)
-
-    # Left column: x = margin
+    # Column positions
     left_x = margin_px
-    # Right column: x = margin + column_width + gap
-    right_x = margin_px + mm_to_px(column_width_mm + 10, dpi)
+    right_x = margin_px + mm_to_px(50, dpi)
+
+    # Section gap between different spacings
+    section_gap_mm = 8
+    section_gap_px = mm_to_px(section_gap_mm, dpi)
 
     # Starting Y position
     start_y = margin_px
 
-    # Generate all line elements
-    elements =
-      generate_column_elements(left_x, start_y, line_length_px, 0.5, 0.7, dpi, section_gap_px) ++
-        generate_column_elements(right_x, start_y, line_length_px, 1.0, 1.5, dpi, section_gap_px)
+    # Perturbation amplitude in pixels
+    amplitude_px = mm_to_px(@perturb_amplitude_mm, dpi)
 
-    Canvas.add_all(canvas, elements)
+    # Generate all elements
+    {straight_elements, perturbed_elements, _final_y} =
+      Enum.reduce(@spacings_mm, {[], [], start_y}, fn spacing_mm,
+                                                      {straight_acc, perturb_acc, y} ->
+        spacing_px = mm_to_px(spacing_mm, dpi)
+
+        # Generate straight lines for this section
+        straight =
+          generate_section_lines(left_x, y, line_length_px, spacing_px)
+
+        # Generate perturbed lines for this section
+        perturbed =
+          generate_perturbed_section(right_x, y, line_length_px, spacing_px, amplitude_px)
+
+        # Calculate next section start
+        section_height = spacing_px * (@lines_per_section - 1)
+        next_y = y + section_height + section_gap_px
+
+        {straight_acc ++ straight, perturb_acc ++ perturbed, next_y}
+      end)
+
+    all_elements = straight_elements ++ perturbed_elements
+    Canvas.add_all(canvas, all_elements)
   end
 
-  # Generates lines for both sections in a column
-  defp generate_column_elements(x, start_y, line_length, top_spacing, bottom_spacing, dpi, gap) do
-    top_section = generate_section_lines(x, start_y, line_length, top_spacing, dpi)
-
-    # Calculate where the bottom section starts
-    top_section_height = mm_to_px(top_spacing * (@lines_per_section - 1), dpi)
-    bottom_start_y = start_y + top_section_height + gap
-
-    bottom_section = generate_section_lines(x, bottom_start_y, line_length, bottom_spacing, dpi)
-
-    top_section ++ bottom_section
-  end
-
-  # Generates lines for a single section
-  defp generate_section_lines(x, start_y, line_length, spacing_mm, dpi) do
-    spacing_px = mm_to_px(spacing_mm, dpi)
-
+  # Generates straight lines for a single section
+  defp generate_section_lines(x, start_y, line_length, spacing_px) do
     Enum.map(0..(@lines_per_section - 1), fn i ->
       y = start_y + i * spacing_px
 
@@ -103,6 +114,34 @@ defmodule Svg.Calibration do
         y2: y,
         stroke: "black",
         stroke_width: 1
+      )
+    end)
+  end
+
+  # Generates perturbed lines for a single section
+  defp generate_perturbed_section(x, start_y, line_length, spacing_px, amplitude_px) do
+    Enum.map(0..(@lines_per_section - 1), fn i ->
+      y = start_y + i * spacing_px
+
+      # Create a line and perturb it
+      line =
+        Line.new(
+          x1: x,
+          y1: y,
+          x2: x + line_length,
+          y2: y,
+          stroke: "black",
+          stroke_width: 1
+        )
+
+      # Use a different seed for each line to get variety
+      seed = @perturb_seed + i * 100 + round(spacing_px)
+
+      Perturb.perturb(line,
+        amplitude: amplitude_px,
+        frequency: @perturb_frequency,
+        seed: seed,
+        samples: @perturb_samples
       )
     end)
   end

@@ -36,6 +36,7 @@ defmodule Svg do
 
   alias Svg.Canvas
   alias Svg.Elements.{Circle, Ellipse, Line, Path, Polygon, Polyline, Rect}
+  alias Svg.Perturb
 
   # Canvas creation and rendering
 
@@ -309,4 +310,60 @@ defmodule Svg do
   """
   @spec px_to_mm(Canvas.t(), number()) :: float()
   defdelegate px_to_mm(canvas, px), to: Canvas
+
+  # Perturbation functions
+
+  @doc """
+  Perturbs an element using Perlin noise to create organic, hand-drawn paths.
+
+  Returns a new Path element with the perturbed shape.
+
+  ## Options
+
+    * `:amplitude` - Maximum displacement in pixels (default: 10.0)
+    * `:frequency` - Noise frequency, higher = more variation (default: 0.1)
+    * `:octaves` - Number of noise layers for detail (default: 1)
+    * `:persistence` - Amplitude falloff per octave (default: 0.5)
+    * `:seed` - Random seed for reproducibility (default: 0)
+    * `:samples` - Number of sample points (default: 100)
+    * `:mode` - Force `:cartesian` or `:polar`, or `:auto` (default: :auto)
+
+  ## Examples
+
+      iex> line = Svg.Elements.Line.new(x1: 0, y1: 0, x2: 100, y2: 0, stroke: "black")
+      iex> path = Svg.perturb(line, amplitude: 5.0, seed: 42)
+      iex> path.d != ""
+      true
+
+  """
+  @spec perturb(struct(), keyword()) :: Path.t()
+  defdelegate perturb(element, opts \\ []), to: Perturb
+
+  @doc """
+  Perturbs the last element added to the canvas.
+
+  Replaces the last element with its perturbed version.
+
+  ## Options
+
+  Same as `perturb/2`.
+
+  ## Examples
+
+      iex> canvas = Svg.canvas(:a6)
+      ...>   |> Svg.line(x1: 0, y1: 0, x2: 100, y2: 0, stroke: "black")
+      ...>   |> Svg.perturb_last(amplitude: 5.0, seed: 42)
+      iex> [element] = canvas.elements
+      iex> element.__struct__
+      Svg.Elements.Path
+
+  """
+  @spec perturb_last(Canvas.t(), keyword()) :: Canvas.t()
+  def perturb_last(%Canvas{elements: []} = canvas, _opts), do: canvas
+
+  def perturb_last(%Canvas{elements: elements} = canvas, opts) do
+    {last, rest} = List.pop_at(elements, -1)
+    perturbed = Perturb.perturb(last, opts)
+    %{canvas | elements: rest ++ [perturbed]}
+  end
 end
