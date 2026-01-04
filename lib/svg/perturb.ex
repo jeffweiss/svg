@@ -26,8 +26,8 @@ defmodule Svg.Perturb do
 
   @default_opts [
     amplitude: 10.0,
-    frequency: 0.1,
-    octaves: 1,
+    frequency: 0.001,
+    octaves: 8,
     persistence: 0.5,
     seed: 0,
     samples: 100,
@@ -43,7 +43,7 @@ defmodule Svg.Perturb do
 
     * `:amplitude` - Maximum displacement in pixels (default: 10.0)
     * `:frequency` - Noise frequency, higher = more variation (default: 0.1)
-    * `:octaves` - Number of noise layers for detail (default: 1)
+    * `:octaves` - Number of noise layers for detail (default: 8)
     * `:persistence` - Amplitude falloff per octave (default: 0.5)
     * `:seed` - Random seed for reproducibility (default: 0)
     * `:samples` - Number of sample points (default: 100)
@@ -329,15 +329,17 @@ defmodule Svg.Perturb do
     octaves = opts[:octaves]
     persistence = opts[:persistence]
 
-    # Use a separate noise offset to avoid artifacts
-    noise_radius = frequency
+    # Sample noise in a circle in noise space.
+    # The radius controls how much the noise varies around the shape.
+    # Scaling by the shape's radius * frequency gives appropriate variation.
+    noise_radius = r * frequency
 
     Enum.map(0..(samples - 1), fn i ->
       # Angle from 0 to 2π (don't include 2π to avoid duplicate point)
       theta = 2 * :math.pi() * i / samples
 
       # Sample noise using polar coordinates in noise space
-      # This ensures seamless wrapping
+      # This ensures seamless wrapping - the path closes smoothly
       noise_x = :math.cos(theta) * noise_radius
       noise_y = :math.sin(theta) * noise_radius
 
@@ -351,7 +353,7 @@ defmodule Svg.Perturb do
           Noise.perlin2(noise_x, noise_y, state)
         end
 
-      # Vary radius
+      # Displace radius by noise
       new_r = r + noise * amplitude
 
       # Convert back to cartesian
@@ -369,7 +371,9 @@ defmodule Svg.Perturb do
     octaves = opts[:octaves]
     persistence = opts[:persistence]
 
-    noise_radius = frequency
+    # Use average radius for noise sampling
+    avg_radius = (rx + ry) / 2
+    noise_radius = avg_radius * frequency
 
     Enum.map(0..(samples - 1), fn i ->
       theta = 2 * :math.pi() * i / samples
@@ -387,7 +391,7 @@ defmodule Svg.Perturb do
           Noise.perlin2(noise_x, noise_y, state)
         end
 
-      # Apply noise to both radii proportionally
+      # Displace both radii by noise
       new_rx = rx + noise * amplitude
       new_ry = ry + noise * amplitude
 
@@ -413,7 +417,14 @@ defmodule Svg.Perturb do
     cx = sum_x / n
     cy = sum_y / n
 
-    noise_radius = frequency
+    # Calculate average radius from centroid to vertices
+    avg_radius =
+      points
+      |> Enum.map(fn {x, y} -> :math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) end)
+      |> Enum.sum()
+      |> Kernel./(n)
+
+    noise_radius = avg_radius * frequency
 
     # Sample around the polygon
     Enum.map(0..(samples - 1), fn i ->

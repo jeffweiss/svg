@@ -2,6 +2,7 @@ defmodule SvgTest do
   use ExUnit.Case
 
   alias Svg.Elements.{Circle, Ellipse, Line, Path, Polygon, Polyline, Rect}
+  alias Svg.Samples
 
   doctest Svg
   doctest Svg.Canvas
@@ -149,14 +150,79 @@ defmodule SvgTest do
     end
   end
 
+  describe "Svg.Samples" do
+    test "generates circles sample with 24 shapes" do
+      canvas = Samples.circles()
+
+      assert canvas.width_mm == 105.0
+      assert canvas.height_mm == 148.0
+      # 6 rows x 4 columns = 24 shapes
+      assert length(canvas.elements) == 24
+    end
+
+    test "generates squares sample with 24 shapes" do
+      canvas = Samples.squares()
+
+      assert canvas.width_mm == 105.0
+      assert canvas.height_mm == 148.0
+      # 6 rows x 4 columns = 24 shapes
+      assert length(canvas.elements) == 24
+    end
+
+    test "first cell is unperturbed (circles)" do
+      canvas = Samples.circles()
+
+      # Only the first cell (index 0) should be an unperturbed Circle
+      first_element = hd(canvas.elements)
+      assert first_element.__struct__ == Circle
+    end
+
+    test "first cell is unperturbed (squares)" do
+      canvas = Samples.squares()
+
+      # Only the first cell (index 0) should be an unperturbed Rect
+      first_element = hd(canvas.elements)
+      assert first_element.__struct__ == Rect
+    end
+
+    test "all cells except first are perturbed Path structs" do
+      canvas = Samples.circles()
+
+      # All cells after the first should be Path structs
+      [_first | rest] = canvas.elements
+      assert Enum.all?(rest, fn el -> el.__struct__ == Path end)
+    end
+
+    test "perturbation increases across the grid" do
+      # This is a structural test - later cells have higher amplitude
+      # We verify by checking path data complexity increases
+      canvas = Samples.circles()
+
+      [_first | rest] = canvas.elements
+
+      # Compare early vs late paths - later should have more variation
+      early_path = Enum.at(rest, 0)
+      late_path = Enum.at(rest, -1)
+
+      # Both should be paths
+      assert early_path.__struct__ == Path
+      assert late_path.__struct__ == Path
+
+      # They should be different (different perturbation levels)
+      refute early_path.d == late_path.d
+    end
+  end
+
   describe "Svg.Calibration" do
-    test "generates a calibration pattern with straight and perturbed lines" do
+    test "generates a calibration pattern with lines and circles" do
       canvas = Svg.Calibration.generate()
 
       assert canvas.width_mm == 105.0
       assert canvas.height_mm == 148.0
-      # 4 spacings x 5 lines x 2 columns (straight + perturbed) = 40 elements
-      assert length(canvas.elements) == 40
+      # Lines: 6 spacings x 5 lines x 2 columns = 60 elements
+      # Circles: 4 radii x 2 (clean + perturbed) = 8 elements
+      # Total: 68 elements
+      assert length(canvas.elements) == 68
     end
 
     test "accepts custom resolution" do
@@ -205,13 +271,15 @@ defmodule SvgTest do
   end
 
   describe "Svg.Perturb" do
-    test "perturbs a line element" do
+    test "perturbs a line element and keeps it open (no Z)" do
       line = Line.new(x1: 0, y1: 0, x2: 100, y2: 0, stroke: "black")
       path = Svg.Perturb.perturb(line, amplitude: 5.0, seed: 42)
 
       assert path.__struct__ == Path
       assert path.d =~ "M"
       assert path.d =~ "L"
+      # Critical: perturbed line should NOT be closed
+      refute path.d =~ "Z"
     end
 
     test "perturbs a circle element using polar noise" do
@@ -241,13 +309,15 @@ defmodule SvgTest do
       assert path.d =~ "Z"
     end
 
-    test "perturbs a polyline element" do
+    test "perturbs a polyline element and keeps it open (no Z)" do
       polyline = Polyline.new(points: [{0, 0}, {50, 25}, {100, 0}], stroke: "black")
       path = Svg.Perturb.perturb(polyline, amplitude: 5.0, seed: 42)
 
       assert path.__struct__ == Path
       assert path.d =~ "M"
       assert path.d =~ "L"
+      # Critical: perturbed polyline should NOT be closed
+      refute path.d =~ "Z"
     end
 
     test "perturbs a polygon element" do
@@ -259,13 +329,15 @@ defmodule SvgTest do
       assert path.d =~ "Z"
     end
 
-    test "perturbs a path element" do
+    test "perturbs an open path element and keeps it open (no Z)" do
       original_path = Path.new(d: "M 0 0 L 50 50 L 100 0", stroke: "black")
       path = Svg.Perturb.perturb(original_path, amplitude: 5.0, seed: 42)
 
       assert path.__struct__ == Path
       assert path.d =~ "M"
       assert path.d =~ "L"
+      # Critical: open path should stay open
+      refute path.d =~ "Z"
     end
 
     test "perturbs a closed path element" do

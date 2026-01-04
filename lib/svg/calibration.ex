@@ -3,31 +3,40 @@ defmodule Svg.Calibration do
   Generates calibration test patterns for plotter/printer accuracy testing.
 
   The calibration SVG uses an A6 canvas and includes sections comparing clean
-  geometric lines with their perturbed counterparts at different line spacings.
+  geometric shapes with their perturbed counterparts.
 
   ## Layout
 
-  Two-column layout comparing straight vs. perturbed lines:
-    * Left column: Clean straight lines (0.5mm, 0.7mm, 1.0mm, 1.5mm spacing)
-    * Right column: Perturbed versions of the same lines using Perlin noise
+  Two-column layout comparing clean vs. perturbed shapes:
 
-  Each section contains 5 horizontal lines, each 40mm long.
+  ### Lines Section
+    * Left column: Clean straight lines at various spacings (0.4mm to 1.5mm)
+    * Right column: Perturbed versions using Perlin noise
+    * Each spacing section contains 5 horizontal lines, each 40mm long
+
+  ### Circles Section
+    * Left column: Clean circles at various radii (3mm, 5mm, 8mm, 12mm)
+    * Right column: Perturbed versions using polar Perlin noise
   """
 
   alias Svg.Canvas
-  alias Svg.Elements.Line
+  alias Svg.Elements.{Circle, Line}
   alias Svg.Perturb
   alias Svg.Units
 
   @line_length_mm 40
   @lines_per_section 5
-  @spacings_mm [0.5, 0.7, 1.0, 1.5]
+  @spacings_mm [0.4, 0.5, 0.7, 0.9, 1.0, 1.2]
+
+  # Circle radii in mm
+  @circle_radii_mm [3, 5, 8, 12]
 
   # Perturbation settings for calibration
   @perturb_amplitude_mm 1.0
-  @perturb_frequency 0.02
+  @perturb_frequency 0.001
   @perturb_seed 42
-  @perturb_samples 50
+  @perturb_samples @line_length_mm * 2
+  @circle_perturb_samples 360
 
   @doc """
   Generates a calibration test pattern SVG.
@@ -78,8 +87,8 @@ defmodule Svg.Calibration do
     # Perturbation amplitude in pixels
     amplitude_px = Units.to_pixels(@perturb_amplitude_mm, dpi)
 
-    # Generate all elements
-    {straight_elements, perturbed_elements, _final_y} =
+    # Generate line elements
+    {straight_lines, perturbed_lines, circles_start_y} =
       Enum.reduce(@spacings_mm, {[], [], start_y}, fn spacing_mm,
                                                       {straight_acc, perturb_acc, y} ->
         spacing_px = Units.to_pixels(spacing_mm, dpi)
@@ -99,7 +108,11 @@ defmodule Svg.Calibration do
         {straight_acc ++ straight, perturb_acc ++ perturbed, next_y}
       end)
 
-    all_elements = straight_elements ++ perturbed_elements
+    # Generate circle elements
+    {clean_circles, perturbed_circles} =
+      generate_circle_sections(left_x, right_x, circles_start_y, dpi, amplitude_px)
+
+    all_elements = straight_lines ++ perturbed_lines ++ clean_circles ++ perturbed_circles
     Canvas.add_all(canvas, all_elements)
   end
 
@@ -145,5 +158,64 @@ defmodule Svg.Calibration do
         samples: @perturb_samples
       )
     end)
+  end
+
+  # Generates circle sections with clean and perturbed versions
+  defp generate_circle_sections(left_x, right_x, start_y, dpi, amplitude_px) do
+    # Calculate column centers for circles
+    column_width_px = Units.to_pixels(40, dpi)
+    left_center_x = left_x + column_width_px / 2
+    right_center_x = right_x + column_width_px / 2
+
+    # Spacing between circle rows
+    row_gap_mm = 5
+
+    {clean, perturbed, _final_y} =
+      Enum.reduce(@circle_radii_mm, {[], [], start_y}, fn radius_mm,
+                                                          {clean_acc, perturb_acc, y} ->
+        radius_px = Units.to_pixels(radius_mm, dpi)
+
+        # Center Y for this row (offset by radius so circles don't overlap)
+        center_y = y + radius_px
+
+        # Clean circle
+        clean_circle =
+          Circle.new(
+            cx: left_center_x,
+            cy: center_y,
+            r: radius_px,
+            stroke: "black",
+            stroke_width: 1,
+            fill: "none"
+          )
+
+        # Perturbed circle
+        perturbed_circle =
+          Circle.new(
+            cx: right_center_x,
+            cy: center_y,
+            r: radius_px,
+            stroke: "black",
+            stroke_width: 2,
+            fill: "none"
+          )
+
+        seed = @perturb_seed + round(radius_px) * 1000
+
+        perturbed_path =
+          Perturb.perturb(perturbed_circle,
+            amplitude: amplitude_px * 2,
+            frequency: @perturb_frequency,
+            seed: seed,
+            samples: @circle_perturb_samples
+          )
+
+        # Next row starts after this circle plus gap
+        next_y = center_y + radius_px + Units.to_pixels(row_gap_mm, dpi)
+
+        {clean_acc ++ [clean_circle], perturb_acc ++ [perturbed_path], next_y}
+      end)
+
+    {clean, perturbed}
   end
 end
