@@ -9,7 +9,7 @@ defmodule Svg.PaperSize do
   @typedoc """
   A paper size identifier.
   """
-  @type size_name :: :a4 | :a5 | :a6 | :us_letter | :nine_by_twelve | :four_by_six
+  @type size_name :: :a4 | :a5 | :a6 | :us_letter | :nine_by_twelve | :four_by_six | :eight_by_ten
 
   @typedoc """
   Paper orientation.
@@ -28,7 +28,8 @@ defmodule Svg.PaperSize do
     a6: {105.0, 148.0},
     us_letter: {215.9, 279.4},
     nine_by_twelve: {228.6, 304.8},
-    four_by_six: {101.6, 152.4}
+    four_by_six: {101.6, 152.4},
+    eight_by_ten: {203.2, 254.0}
   }
 
   @doc """
@@ -37,7 +38,7 @@ defmodule Svg.PaperSize do
   ## Examples
 
       iex> Svg.PaperSize.available_sizes()
-      [:a4, :a5, :a6, :four_by_six, :nine_by_twelve, :us_letter]
+      [:a4, :a5, :a6, :eight_by_ten, :four_by_six, :nine_by_twelve, :us_letter]
 
   """
   @spec available_sizes() :: [size_name()]
